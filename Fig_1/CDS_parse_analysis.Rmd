@@ -1,0 +1,270 @@
+Frequency Spectrum Analysis for PTC vs. Synonymous
+========================================================
+*Goal of this analysis*
+1. Compare the frequency spectrum of PTC variants to that of synonymous (no change or fourfold degenerate sites) or nonsynonymous ones.
+2. Evaluate relative positions of PTC variants in CDS
+
+## 1. Read and cleanup data
+_Some general stats_
+* 11375 genes in total
+```{r Read_files, cache=TRUE}
+setwd("~/Documents/work/help_others/Yong_project/Fig_1")
+res <- read.table("out1.txt",head=TRUE)
+Genes <- read.table("out1.txt.sites",head=TRUE)
+
+# remove cases where both alleles are stop codons -- usually fixed/poly at the actual stop codon
+# instead of PTC
+stopcodons <- c("TAA","TAG","TGA")
+stoppairs <- paste(stopcodons[c(1,1,2,2,3,3)],stopcodons[c(2,3,1,3,1,2)],sep="")
+ss <- subset(res, OriMut %in% stoppairs)
+res <- subset(res, !OriMut %in% stoppairs)
+# further remove loss of stop codon events, focus on gain
+ori <- substr(res$OriMut, 1, 3)
+ls <- subset(res, ori %in% stopcodons)
+res <- subset(res, !ori %in% stopcodons)
+```
+
+```{r MK_test, fig.height=5,fig.width=5}
+# a very rough MK test
+# use 15% as empirical cutoff for MAF
+mk <- with(subset(res, DAF > total * .15),  table( polyfix, SynNons)[1:2,] )
+barplot(mk[1,]/mk[2,],ylab="fix/poly ratio")
+```
+
+## 2. Calculate SFS
+
+```{r site_freq_spec,echo=FALSE,fig.height=5}
+## Note
+## In my original parsing, I used the order of "anc, sim, yak" to infer the ancestral state. Using "sim" has the potential problem of mis-polarizing, because mel and sim could share a number of ancestral polymorphism. Therefore, I modified the code to use just "anc, yak" to infer the ancestral state. The probability that the single yakuba allele agrees with one of the mel alleles and yet it is not the ancestral state is relatively small.
+mySample <- function(x, N, folded=TRUE) {
+  # this function takes in a data frame / matrix (x) that contains two columns (DAF - total)
+  # it then downsamples to make total = N
+  x1 <- x[x[,2] >= N,]
+  resample <- apply(x1, 1, function(z) rhyper(1, z[1], z[2]-z[1], 150))
+  freq <- tabulate(resample, N-1)
+  if (!folded){
+    mid <- floor( (N-1)/2 )
+    tFreq <- freq
+    freq <- tFreq[1:mid] + tFreq[(N-1):(N-mid)]
+    if ((N-1) %% 2){
+      freq <- c(freq, tFreq[mid+1])
+    }
+  }
+  return(freq)
+}
+N <- 150
+sfs <- list()
+sfs$nochg <- subset(res, polyfix=="poly" & SynNons=="no", c("DAF","total"))
+sfs$pu <- subset(res, polyfix=="poly" & SynNons=="pu", c("DAF","total"))
+sfs$up <- subset(res, polyfix=="poly" & SynNons=="up", c("DAF","total"))
+sfs$nonsyn <- subset(res, polyfix=="poly" & SynNons=="Non", c("DAF","total"))
+sfs$PTC <- subset(res, polyfix=="poly" & SynNons=="PTC", c("DAF","total"))
+SFS <- data.frame(NoChg = mySample(sfs$nochg,N))
+SFS$PU = mySample(sfs$pu,N)
+SFS$UP = mySample(sfs$up,N)
+SFS$NON = mySample(sfs$nonsyn,N)
+SFS$PTC = mySample(sfs$PTC,N)
+SFS$Neutral = sum(SFS$NoChg) / sum( 1/1:(N-1) ) * 1/1:(N-1)
+
+## Plot SFS
+## unfolded spectra
+gr.name <- c("Singleton","Low","Intermediate","High")
+group <- cut(1:(N-1), breaks=c(0,1,N*.1,N*.8,N))
+SFS1 <- sapply(SFS, function(x) tapply(x, group, function(y) sum(y)/sum(x)))
+barplot(SFS1[,c(6,1:5)], beside=TRUE,col=grey(c(1,.35,.6,.8)),ylim=c(0,0.8),
+        names.arg=c("Neutral","No","P->U","U->P","Nonsyn","PTC"), 
+        legend.text=c("Singleton","Low","Intermediate","High"),
+        args.legend=list(x="topleft",bty="n",ncol=2))
+cat("In this plot, NoChg/P->U/U->P all refer to synonymous changes. They are classified by how the substitution affected codon usage. Among them, NoChg is considered closest to neutral. U->P is likely under positive selection...\n")
+cat("Variants that appear in just one strain, i.e. singletons, are more prone to be sequencing error. For this reason, I showed them as a separate class. Even if we disregard them, it is clear from the plot that PTC variants have a highly skewed frequency spectrum compared to all the other classes, with an excess of low frequency ones...\n")
+
+
+## folded spectra
+m <- floor((N-1)/2)
+mGr <- cut(1:m, breaks=c(0,1,m*.15,m+1))
+if ((N-1) %% 2){
+  mGr <- c(mGr,3,rev(mGr))
+} else {
+  mGr <- c(mGr, rev(mGr))
+}
+SFS2 <- sapply(SFS, function(x) tapply(x, mGr, function(y) sum(y)/sum(x)))
+#barplot(SFS2, beside=TRUE,col=grey(c(1,.35,.6)),names.arg=c("NoChg","P->U","U->P","Nonsyn","PTC","Neutral"))
+```
+
+## 3. SFS test
+```{r sfs_test_subroutine}
+myTheta <- function(sfs1){
+  n <- length(sfs1)+1
+  n1 <- n-1
+  S <- sum(sfs1)
+  theta.w <- S / sum(1/1:n1)
+  theta.pi <- sum(1:n1 * n1:1 * sfs1) / choose(n,2)
+  theta1 <- sfs1[1]
+  theta.h <- sum(1:n1 * 1:n1 * sfs1) / choose(n,2)
+  return(list(theta.w=theta.w,theta.pi=theta.pi,theta1=theta1,theta.h=theta.h))
+}
+mySFStest <- function(sfs1,divide,sfs2=NULL){
+  ## INPUT: a vector of frequency spectrums, length = n-1
+  ##        frequency class from 1 ~ n-1, counts
+  ##        divide is a percentage (0,1) which groups the sites into two classes
+  ## DO   : calculate various theta estimators and
+  ##        do several tests based on these estimators, following ZK's work
+  ## OUTPUT: to be determined
+
+  ## calculate different estimators of theta
+  n <- length(sfs1)+1
+  n1 <- n-1
+  S <- sum(sfs1)
+  theta.w <- S / sum(1/1:n1)
+  theta.pi <- sum(1:n1 * n1:1 * sfs1) / choose(n,2)
+  theta1 <- sfs1[1]
+  theta.h <- sum(1:n1 * 1:n1 * sfs1) / choose(n,2)
+
+  ## Calculate Tajima's D
+  d <- theta.pi-theta.w
+  a1 = sum(1/1:n1); b1 = (n+1)/(3*(n-1)); c1=b1-1/a1; e1=c1/a1
+  a2 = sum(1/(1:n1)^2); b2 = 2*(n^2+n+3)/(9*n*(n-1)); c2=b2-(n+2)/a1/n+a2/(a1^2); e2=c2/(a1^2+a2)
+  vd.hat <- e1*S+e2*S*(S-1)
+  D <- d/sqrt(vd.hat)
+  
+  ## 2. divide the counts into two categories according to "divide"
+  j <- trunc(n*divide) 
+  obs <- c(sum(sfs1[1:j]),sum(sfs1[-(1:j)])) # groups: 1:j and j:n1
+  if(is.null(sfs2)){
+    sfs0 <- 1/1:n1 ## sfs under neutral model
+    exp.p <- c(sum(sfs0[1:j]),sum(sfs0[-(1:j)])) / sum(sfs0)
+    if(sum(obs<5))
+      chisq <- chisq.test(obs,p=exp.p,simulate=TRUE,B=10000)
+    else
+      chisq <- chisq.test(obs,p=exp.p,simulate=FALSE)
+    ## 4. likelihood ratio
+    L0=dbinom(obs[1],size=sum(obs),prob=exp.p[1])
+    L1=dbinom(obs[1],size=sum(obs),prob=obs[1]/sum(obs))
+    LR=L0/L1
+  }
+  else{
+    obs2 <- c(sum(sfs2[1:j]),sum(sfs2[-(1:j)])) # groups: 1:j and j:n1
+    exp.p <- obs2 / sum(obs2)
+    if(sum(obs)<5 | sum(obs2)<5)
+      chisq <- chisq.test(obs,p=exp.p, simulate=TRUE, B=10000)
+    else
+      chisq <- chisq.test(obs,p=exp.p,simulate=FALSE)
+    ## 4. likelihood ratio
+    L0=dbinom(obs[1],size=sum(obs),prob=obs2[1]/sum(obs2))
+    L1=dbinom(obs[1],size=sum(obs),prob=obs[1]/sum(obs))
+    LR=L0/L1
+  }
+
+  
+  result <- list(table= matrix( c(obs, round(obs/sum(obs),2),
+                                  chisq$exp,round(chisq$exp/sum(chisq$exp),2)), ncol=4, 
+                                dimnames=list(c(paste("<",divide,sep=""),
+                                                paste(">=",divide,sep="")),
+                                              c("obs","obs%","exp","exp%"))),
+                 chisq.stat=chisq$stat, chisq.pvalue=chisq$p.value,
+                 Likelihood.rtio=LR,
+                 Tajima.D=D)
+  return(result)
+}
+mySFStest1 <- function(sfs1,neut=NULL){
+  ## a simple categorical X^2 test
+  ## 1. divide the polymorphism counts into three categories of roughtly equal size
+  n1 <- length(sfs1)
+  n <- n1+1
+  if(is.null(neut)){
+    neut <- 1/1:n1 ## neutral spectrum
+  }
+  cum.neut <- cumsum(neut)
+  cum <- max(cum.neut)
+  cut1 <- c(which.min(abs(cum.neut - cum/3)),
+            which.min(abs(cum.neut - cum*2/3)))
+  category <- as.factor(c(rep("low",cut1[1]),
+                          rep("intermediate",cut1[2]-cut1[1]),
+                          rep("high", n1-cut1[2])))
+  obs <- by(sfs1,category,sum)
+  exp <- by(neut,category,sum)
+  if(sum(obs<5))
+    simulate1=TRUE
+  else
+    simulate1=FALSE
+  barplot(rbind(obs,exp=exp/sum(exp)*sum(obs))[,3:1],beside=TRUE,legend.text=TRUE)
+  return(chisq.test(obs,p=exp/sum(exp),simulate=simulate1))
+}
+tajima.d <- apply(SFS[,-6], 2, function(x) mySFStest(x,.15)$Tajima)
+```
+
+## 4. Pi for Syn and PTC
+```{r compare_pi}
+## calculate total number of fourfold degenerate sites or one-step to PTC sites
+L <- c(fourfold=sum(Genes$X4fold),nonsyn=sum(Genes$Non),onestep=sum(Genes$OneStep))
+## estimate theta.pi
+sfs$fourfold <- subset(res, polyfix=="poly" & X4fold==1 & SynNons %in% c("pu","up","no"), c("DAF","total"))
+SFS$fourfold <- mySample(sfs$fourfold,150)
+theta.pi <- c(fourfold=myTheta(SFS$fourfold)$theta.pi,nonsyn=myTheta(SFS$NON)$theta.pi,PTC=myTheta(SFS$PTC)$theta.pi)
+theta.pi.per.site <- theta.pi / L
+```
+
+## 5. Relative position of PTC
+```{r Position_PTC,echo=FALSE,warning=FALSE}
+ptc <- subset(res, SynNons=="PTC" & polyfix=="poly",c("geneID","OriMut","pos","DAF","total"))
+ptc$gene <- substr(ptc$geneID,1,11)
+ptc1 <- merge(ptc, Genes[,c("geneID","Total")], by="geneID", all.x=TRUE)
+ptc1$rPos <- ptc1$pos/ptc1$Total
+ptc1$rDAF <- apply(ptc1[,c("DAF","total")],1,function(z) rhyper(1,z[1],z[2]-z[1],N))
+```
+
+```{r relative_pos_in_CDS,fig.height=6,fig.width=7}
+rPos.hist <- rbind(hist(subset(ptc1,rDAF==1)$rPos,plot=FALSE)$counts,
+                   hist(subset(ptc1,rDAF>1&rDAF<=15)$rPos,plot=FALSE)$counts,
+                   hist(subset(ptc1,rDAF>15)$rPos,plot=FALSE)$counts)
+plot(seq(0.1,1,0.1),rPos.hist[1,],type="b",ylim=c(0,100),cex.lab=1.2,
+     xlab="Relative position in CDS", ylab="Count", main="Frequency of PTC along CDS")
+lines(seq(0.1,1,0.1),rPos.hist[2,],type="b",col=2)
+lines(seq(0.1,1,0.1),rPos.hist[3,],type="b",col=3)
+legend("topleft",pch=1,lty=1,col=1:3,legend=c("(0,1]","(1,15]","(15,149]"),bty="n",ncol=2)
+```
+*Notice how the intermediate/high frequency PTC show a 'bump' in the middle of the CDS...*
+
+```{r Genes_with_multiple_PTC,echo=FALSE,warning=FALSE}
+## distribution of number of PTC per gene
+cat("Distribution of # of PTC variants per gene..\n")
+print(table(table(ptc1$gene)))
+
+## multiple-PTC-encoding genes
+## focus on the 96 genes with 2 or 3 PTC
+cat("In genes with multiple PTC, is there a correlation between the order and the DAF of the PTC SNPs?\n")
+multi.ptc <- subset(ptc1, duplicated(gene) | duplicated(gene,fromLast=TRUE))
+rPos.DAF <- data.frame(gene=character(), 
+                       rPos1=double(), DAF1=double(),
+                       rPos2=double(), DAF2=double(),
+                       rPos3=double(), DAF3=double())
+cnt = 1; pre = ""; j = 0
+for (i in 1:nrow(multi.ptc)){
+  tmp <- multi.ptc[i,]
+  if( tmp$gene != pre ){
+    j = j + 1
+    rPos.DAF[j,"gene"] = tmp$gene
+    rPos.DAF[j,"rPos1"] = tmp$rPos
+    rPos.DAF[j,"DAF1"] = tmp$DAF / tmp$total
+    pre = tmp$gene
+    cnt = 1
+  } else {
+    cnt = cnt+1
+    if (cnt < 4){
+      tName = paste(c("rPos","DAF"), cnt, sep="")
+      rPos.DAF[j,tName[1]] = tmp$rPos
+      rPos.DAF[j,tName[2]] = tmp$DAF / tmp$total
+    }
+  }
+}
+diff <- with(rPos.DAF, rPos2-rPos1)
+rPos.DAF1 <- rPos.DAF[diff>0.15,] ## focus on those cases in which the two consective PTC are at least 15% of CDS length apart
+stripchart(rPos.DAF[,c("DAF1","DAF2")],log="x",group.names=c("1st","2nd"),xlab="relative position (% CDS)",ylab="PTC",method="jitter",jitter=.2,pch=19,col=rgb(1,0,0,.2))
+cat("Difference is not obvious / significant...\n")
+
+## how about divide PTC by their relative position on CDS into 4 quarters, is there any difference in their DAF?
+ptc1$group <- cut(ptc1$rPos, breaks=c(0,.25,.5,.75,1), labels=c("1st","2nd","3rd","4th"))
+require(ggplot2)
+ggplot(ptc1, aes(factor(group),DAF/total))+geom_boxplot()+xlab("relative position on CDS (quarters)")+ylab("Derived allele frequency")
+```
+

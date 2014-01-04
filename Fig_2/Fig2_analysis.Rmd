@@ -1,0 +1,25 @@
+Analysis for Figure 2
+========================================================
+
+The commands here are used to analyze the expression profiles for genes containing
+PTC SNPs. 
+2nd jan 2014
+@hebin
+
+## 1. Read data
+```{r read_data,cache=TRUE}
+options(stringsAsFactors=FALSE)
+setwd("~/Documents/work/help_others/Yong_project/Fig_2")
+datS3 <- read.table("Table_S3.txt",head=TRUE,as.is=TRUE)
+Raw <- read.table("PTC_genes_flyatlas_exp.txt",head=TRUE,as.is=TRUE)
+DAF <- read.table("PTC_genes_DAF.txt",head=TRUE,row.names=1,as.is=TRUE)
+```
+
+## 2. Expression breadth
+```{r exp_breadth,fig.width=7, fig.height=6}
+raw <- as.matrix(Raw[,-1]>0.001)
+expression.breadth = raw %*% rep(1,ncol(raw))
+Exp.brth <- data.frame(gene=Raw[,1],breadth=expression.breadth)
+Exp.brth$DAF <- DAF[Exp.brth$gene,"DAF"]
+```
+
