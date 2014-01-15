@@ -224,6 +224,18 @@ lines(seq(0.1,1,0.1),rPos.hist[3,],type="b",col=3)
 legend("topleft",pch=1,lty=1,col=1:3,legend=c("(0,1]","(1,15]","(15,149]"),bty="n",ncol=2)
 ```
 *Notice how the intermediate/high frequency PTC show a 'bump' in the middle of the CDS...*
+```{r relative_pos_and_DAF,echo=FALSE}
+cat("Distribution of PTC in CDS")
+## how about divide PTC by their relative position on CDS into 4 quarters, is there any difference in their DAF?
+ptc1$group <- cut(ptc1$rPos, breaks=c(0,.25,.5,.75,1), labels=c("1st","2nd","3rd","4th"))
+pdf("PTC_distr_on_CDS.pdf",width=4,height=4)
+ggplot(ptc1, aes(factor(group))) + geom_bar(fill=grey(.5))+ylim(0,400)+xlab("Relative position on CDS (quarters)")+ylab("# of PTCs")
+dev.off()
+pdf("PTC_by_DAF.pdf",width=4,height=4)
+require(ggplot2)
+ggplot(ptc1, aes(factor(group),DAF/total))+geom_boxplot()+xlab("Relative position on CDS (quarters)")+ylab("Derived allele frequency")
+dev.off()
+```
 
 ```{r Genes_with_multiple_PTC,echo=FALSE,warning=FALSE}
 ## distribution of number of PTC per gene
@@ -262,9 +274,5 @@ rPos.DAF1 <- rPos.DAF[diff>0.15,] ## focus on those cases in which the two conse
 stripchart(rPos.DAF[,c("DAF1","DAF2")],log="x",group.names=c("1st","2nd"),xlab="relative position (% CDS)",ylab="PTC",method="jitter",jitter=.2,pch=19,col=rgb(1,0,0,.2))
 cat("Difference is not obvious / significant...\n")
 
-## how about divide PTC by their relative position on CDS into 4 quarters, is there any difference in their DAF?
-ptc1$group <- cut(ptc1$rPos, breaks=c(0,.25,.5,.75,1), labels=c("1st","2nd","3rd","4th"))
-require(ggplot2)
-ggplot(ptc1, aes(factor(group),DAF/total))+geom_boxplot()+xlab("relative position on CDS (quarters)")+ylab("Derived allele frequency")
 ```
 

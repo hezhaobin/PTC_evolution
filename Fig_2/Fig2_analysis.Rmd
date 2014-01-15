@@ -21,5 +21,54 @@ raw <- as.matrix(Raw[,-1]>0.001)
 expression.breadth = raw %*% rep(1,ncol(raw))
 Exp.brth <- data.frame(gene=Raw[,1],breadth=expression.breadth)
 Exp.brth$DAF <- DAF[Exp.brth$gene,"DAF"]
+
+# PTC-encoding genes compared to the rest of the genome
+Exp.brth$group <- cut(Exp.brth$DAF, br=c(0,.015,.1,1), labels=c("Low","Intermediate","High"))
+Exp.brth$group <- factor(Exp.brth$group, levels=c("nonPTC", "Low","Intermediate","High"))
+Exp.brth$group[is.na(Exp.brth$group)] <- "nonPTC"
+pdf("Expression_breadth_compare_PTC_DAF.pdf",width=6,height=5)
+ggplot(Exp.brth, aes(factor(group), breadth)) + geom_boxplot() + xlab("Genes by PTC frequency")
+dev.off()
 ```
 
+## 3. Identify tissues enriched for PTC encoding genes
+```{r}
+## the data is stored in datS3
+chisqstat <- with(datS3, chisq.test(Total, p=Genome_Background, rescale.p=TRUE, simulate.p.value=TRUE))
+datS3$exp <- chisqstat$expected
+sum.obs <- sum(datS3$Total)
+p.exp <- datS3$Genome_Background / sum(datS3$Genome_Background)
+alpha <- .95^(1/30)
+crit <- -qnorm((1-alpha)/2)
+delta <- crit * sqrt( p.exp * (1-p.exp) * sum.obs )
+datS3$min <- datS3$exp - delta
+datS3$max <- datS3$exp + delta
+pdf("Tissues_enriched_with_PTC.pdf",width=6,height=5)
+p <- ggplot(datS3, aes(Genome_Background, Total)) + geom_point() + geom_ribbon(aes(ymin=min, ymax=max),alpha=.2) + xlab("Genome Background") + ylab("# of PTC genes with highest expr.")
+p + geom_text(data=datS3[c(13,24,31),], aes(x=Genome_Background+50, y=Total+8, label=Tissue),size=4) + geom_text(data=datS3[c(14,17),], aes(x=Genome_Background, y=Total-5, label=Tissue),hjust=0,size=4)
+dev.off()
+```
+
+### 3.1 distinct patterns among groups of PTC genes with different derived allele frequency
+```{r DAF_expression_relation}
+group2 <- c(rep(1,30),4)
+group2[c(1,7,8,12,14,16)] <- 2; group2[13] <- 3
+group2 <- factor(group2, labels=c("other","sex-related organs","adult mid gut","no expression"))
+tissue.distr <- sapply(datS3[,c(2,4,5,6)], function(v) tapply(v,group2,sum))
+tissue.distr <- tissue.distr[c(2:4,1),]
+tissue.df <- data.frame(Count=c(tissue.distr),Tissue=rep(rownames(tissue.distr),4),Class=rep(colnames(tissue.distr),each=4))
+tissue.df$Tissue <- factor(tissue.df$Tissue,levels=c("sex-related organs","adult mid gut","no expression","other"))
+tissue.df$Class <- factor(tissue.df$Class,levels=unique(tissue.df$Class),labels=c("Genome","(0,1.5%]","(1.5%,10%]","(10%,100%)"))
+require(plyr)
+tissue.df <- ddply(tissue.df, .(Class), transform, pos = (cumsum(Count)-0.5*Count) / sum(Count))
+chisq.p <- c("DAF1.5" = chisq.test(tissue.distr[,c(1,2)])$p.value,
+             "DAF10"  = chisq.test(tissue.distr[,c(1,3)])$p.value,
+             "DAF100" = chisq.test(tissue.distr[,c(1,4)],simulate.p=T)$p.value)
+
+pdf("Compare_tissues_group_by_DAF.pdf",width=7,height=5)
+p = ggplot(tissue.df, aes(x=Class,y=Count,fill=Tissue))
+p = p + geom_bar(position="fill",stat="identity",width=0.8)  + xlab("PTC derived allele frequency") + ylab("Proportion")
+p = p + geom_text(aes(y=pos,label=Count),size=2.6)
+p #p + coord_flip() + theme(legend.position="bottom")
+dev.off()
+```
