@@ -71,10 +71,17 @@ SFS$Neutral = sum(SFS$NoChg) / sum( 1/1:(N-1) ) * 1/1:(N-1)
 gr.name <- c("Singleton","Low","Intermediate","High")
 group <- cut(1:(N-1), breaks=c(0,1,N*.1,N*.8,N))
 SFS1 <- sapply(SFS, function(x) tapply(x, group, function(y) sum(y)/sum(x)))
-barplot(SFS1[,c(6,1:5)], beside=TRUE,col=grey(c(1,.35,.6,.8)),ylim=c(0,0.8),
-        names.arg=c("Neutral","No","P->U","U->P","Nonsyn","PTC"), 
-        legend.text=c("Singleton","Low","Intermediate","High"),
+pdf("SFS1.pdf",width=5,height=5)
+par( mar=c(4,4,2,2) )
+color <- c("darkred","darkgreen","lightblue","darkblue")
+barplot(SFS1[,c(6,1:5)], beside=TRUE,col=color,
+        ylim=c(0,0.8),yaxs="r",
+        names.arg=c("Neutral","No","P->U","U->P","Non","PTC"), 
+        ylab="Frequency",
+        legend.text=c("Singleton","Low","Moderate","High"),
         args.legend=list(x="topleft",bty="n",ncol=2))
+box(col=grey(0))
+dev.off()
 cat("In this plot, NoChg/P->U/U->P all refer to synonymous changes. They are classified by how the substitution affected codon usage. Among them, NoChg is considered closest to neutral. U->P is likely under positive selection...\n")
 cat("Variants that appear in just one strain, i.e. singletons, are more prone to be sequencing error. For this reason, I showed them as a separate class. Even if we disregard them, it is clear from the plot that PTC variants have a highly skewed frequency spectrum compared to all the other classes, with an excess of low frequency ones...\n")
 
@@ -226,14 +233,26 @@ legend("topleft",pch=1,lty=1,col=1:3,legend=c("(0,1]","(1,15]","(15,149]"),bty="
 *Notice how the intermediate/high frequency PTC show a 'bump' in the middle of the CDS...*
 ```{r relative_pos_and_DAF,echo=FALSE}
 cat("Distribution of PTC in CDS")
+require(ggplot2)
 ## how about divide PTC by their relative position on CDS into 4 quarters, is there any difference in their DAF?
+ggtheme <- theme_bw() + 
+  theme(
+    plot.background = element_blank()
+   ,panel.grid.major = element_blank()
+   ,panel.grid.minor = element_blank()
+   #,panel.border = element_blank()
+   #,panel.background = element_blank()
+   #,text=element_text(family="Cambria Bold")
+  ) 
 ptc1$group <- cut(ptc1$rPos, breaks=c(0,.25,.5,.75,1), labels=c("1st","2nd","3rd","4th"))
 pdf("PTC_distr_on_CDS.pdf",width=4,height=4)
 ggplot(ptc1, aes(factor(group))) + geom_bar(fill=grey(.5))+ylim(0,400)+xlab("Relative position on CDS (quarters)")+ylab("# of PTCs")
 dev.off()
-pdf("PTC_by_DAF.pdf",width=4,height=4)
-require(ggplot2)
-ggplot(ptc1, aes(factor(group),DAF/total))+geom_boxplot()+xlab("Relative position on CDS (quarters)")+ylab("Derived allele frequency")
+pdf("PTC_by_DAF.pdf",width=5,height=5)
+#ggplot(ptc1, aes(factor(group),DAF/total))+geom_boxplot(fill="lightblue",outlier.size=1.5)+xlab("Relative position on CDS (quarters)")+ylab("Derived allele frequency") + ggtheme + scale_y_sqrt(breaks=c(0.01,0.1,0.25,0.5,0.75,1))
+par(mar=c(4,4,2,2),mgp=c(2.5,1,0))
+boxplot(DAF/total ~ group, data=ptc1, col="lightblue", pch=16, cex=.5, log="y", ylab="Derived allele frequency of PTC", xlab="Relative position along CDS (quarters)")
+abline(h=0.5, lty=3, col=grey(0.2,0.8))
 dev.off()
 ```
 

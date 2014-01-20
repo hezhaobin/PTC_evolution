@@ -32,7 +32,18 @@ dev.off()
 ```
 
 ## 3. Identify tissues enriched for PTC encoding genes
-```{r}
+```{r tissues_encriched_for_PTC}
+## for ggplot theme
+ggtheme <- theme_bw() + 
+  theme(
+    plot.background = element_blank()
+   ,panel.grid.major = element_blank()
+   ,panel.grid.minor = element_blank()
+   ,axis.title=element_text(vjust=0.1)
+   #,panel.border = element_blank()
+   #,panel.background = element_blank()
+   #,text=element_text(family="Cambria Bold")
+  ) 
 ## the data is stored in datS3
 chisqstat <- with(datS3, chisq.test(Total, p=Genome_Background, rescale.p=TRUE, simulate.p.value=TRUE))
 datS3$exp <- chisqstat$expected
@@ -43,9 +54,9 @@ crit <- -qnorm((1-alpha)/2)
 delta <- crit * sqrt( p.exp * (1-p.exp) * sum.obs )
 datS3$min <- datS3$exp - delta
 datS3$max <- datS3$exp + delta
-pdf("Tissues_enriched_with_PTC.pdf",width=6,height=5)
+pdf("Tissues_enriched_with_PTC.pdf",width=5,height=5)
 p <- ggplot(datS3, aes(Genome_Background, Total)) + geom_point() + geom_ribbon(aes(ymin=min, ymax=max),alpha=.2) + xlab("Genome Background") + ylab("# of PTC genes with highest expr.")
-p + geom_text(data=datS3[c(13,24,31),], aes(x=Genome_Background+50, y=Total+8, label=Tissue),size=4) + geom_text(data=datS3[c(14,17),], aes(x=Genome_Background, y=Total-5, label=Tissue),hjust=0,size=4)
+p + geom_text(data=datS3[c(13,24,31),], aes(x=Genome_Background+50, y=Total+8, label=Tissue),size=4) + geom_text(data=datS3[c(14,17),], aes(x=Genome_Background, y=Total-5, label=Tissue),hjust=0,size=4) + ggtheme
 dev.off()
 ```
 
@@ -65,10 +76,28 @@ chisq.p <- c("DAF1.5" = chisq.test(tissue.distr[,c(1,2)])$p.value,
              "DAF10"  = chisq.test(tissue.distr[,c(1,3)])$p.value,
              "DAF100" = chisq.test(tissue.distr[,c(1,4)],simulate.p=T)$p.value)
 
+## ggplot custom color scheme
+myCol <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")[c(7,2,4,3,6)]
 pdf("Compare_tissues_group_by_DAF.pdf",width=7,height=5)
 p = ggplot(tissue.df, aes(x=Class,y=Count,fill=Tissue))
-p = p + geom_bar(position="fill",stat="identity",width=0.8)  + xlab("PTC derived allele frequency") + ylab("Proportion")
-p = p + geom_text(aes(y=pos,label=Count),size=2.6)
+p = p + geom_bar(position="fill",stat="identity",width=0.8)  + xlab("PTC derived allele frequency") + ylab("Proportion") + ggtheme + scale_fill_manual(values=myCol)
+p = p + geom_text(aes(y=pos,label=Count),size=2.8,col="white")
 p #p + coord_flip() + theme(legend.position="bottom")
 dev.off()
+```
+
+```{r chromosome_distribution}
+chrom.dist <- data.frame(
+    Count = c(2624,2776,2708,3331,2176,133,144,130,145,104,33,38,27,35,5,5,7,3,7,3),
+    Chr = gl(5,1,20,labels=c("2L","2R","3L","3R","X")), 
+    Group = gl(4,5,labels=c("Expect","Low","Moderate","High"))
+  )
+chrom.dist <- ddply(chrom.dist, .(Group), transform, pos = (cumsum(Count)-0.5*Count) / sum(Count))
+pdf("Chromosome_distribution_by_DAF.pdf",width=6,height=6)
+p = ggplot(chrom.dist, aes(x=factor(Group),y=Count,fill=Chr))
+p = p + geom_bar(position="fill",stat="identity",width=0.7)  + xlab("") + ylab("Proportion") + ggtheme + scale_fill_manual(values=myCol)
+p # + geom_text(aes(y=pos,label=Count),size=2.8,col="white")
+#p + coord_polar(theta="y")
+dev.off()
+
 ```
